@@ -1,4 +1,3 @@
-// web/js/app.js
 let model = null;
 
 async function loadJSON(path) {
@@ -7,22 +6,24 @@ async function loadJSON(path) {
   return await res.json();
 }
 
-// MinMaxScaler params saved from Python:
+// MinMaxScaler params:
 // x_scaled = x * scale + min_
 // inverse: x = (x_scaled - min_) / scale
-function norm(x, sc) {
-  return x * sc.scale + sc.min_;
-}
-function denorm(xScaled, sc) {
-  return (xScaled - sc.min_) / sc.scale;
+function norm(x, sc) { return x * sc.scale + sc.min_; }
+function denorm(xScaled, sc) { return (xScaled - sc.min_) / sc.scale; }
+
+function $(...ids) {
+  for (const id of ids) {
+    const el = document.getElementById(id);
+    if (el) return el;
+  }
+  return null;
 }
 
 function firstTensor(out) {
   if (!out) return null;
   if (Array.isArray(out)) return out[0];
-  // Tensor has dataSync/data
-  if (typeof out === "object" && (out.dataSync || out.data)) return out;
-  // Some TFJS APIs may return map object
+  if (out.dataSync || out.data) return out;
   if (typeof out === "object") {
     const k = Object.keys(out)[0];
     return out[k];
@@ -33,27 +34,40 @@ function firstTensor(out) {
 async function main() {
   await tf.ready();
 
-  // Elements (must match your index.html ids)
-  const btnLoad = document.getElementById("btnLoad");
-  const btnPredict = document.getElementById("btnPredict");
-  const lookbackEl = document.getElementById("lookback");
+  // підтримка різних id
+  const btnLoad = $("btnLoad", "load");
+  const btnPredict = $("btnPredict", "pred");
 
-  const lastValEl = document.getElementById("lastVal");
-  const predValEl = document.getElementById("predVal");
-  const diffValEl = document.getElementById("diffVal");
+  const lookbackEl = $("lookback"); // може бути null
 
-  // Load demo data + scaler
+  const lastValEl = $("lastVal", "last");
+  const predValEl = $("predVal", "forecast");
+  const diffValEl = $("diffVal", "diff");
+
+  // якщо якихось елементів немає — покажемо конкретно що
+  const missing = [];
+  if (!btnLoad) missing.push("button id=btnLoad або load");
+  if (!btnPredict) missing.push("button id=btnPredict або pred");
+  if (!lastValEl) missing.push("div id=lastVal або last");
+  if (!predValEl) missing.push("div id=predVal або forecast");
+  if (!diffValEl) missing.push("div id=diffVal або diff");
+
+  if (missing.length) {
+    throw new Error("Не знайдені елементи в HTML: " + missing.join(", "));
+  }
+
+  // load demo data
   const demo = await loadJSON("./data/demo.json");
   const values = demo.values;
   const sc = demo.scaler;
 
-  // If lookback stored in scaler.json – set input value
-  if (sc.lookback != null) lookbackEl.value = sc.lookback;
+  // lookback: або з input, або з scaler, або дефолт 5
+  if (lookbackEl && sc.lookback != null) lookbackEl.value = sc.lookback;
 
-  // Show last known value
+  // last known
   lastValEl.textContent = values[values.length - 1].toFixed(4);
 
-  // Load model
+  // load model
   btnLoad.addEventListener("click", async () => {
     try {
       btnLoad.disabled = true;
@@ -64,10 +78,8 @@ async function main() {
       btnLoad.textContent = "Модель завантажено";
       btnPredict.disabled = false;
 
-      // Debug (optional)
-      console.log("Model loaded");
-      console.log("Inputs:", model.inputs?.map(i => i.name));
-      console.log("Outputs:", model.outputs?.map(o => o.name));
+      console.log("Model inputs:", model.inputs?.map(i => i.name));
+      console.log("Model outputs:", model.outputs?.map(o => o.name));
     } catch (e) {
       console.error(e);
       alert("Помилка завантаження моделі: " + e.message);
@@ -76,31 +88,26 @@ async function main() {
     }
   });
 
-  // Predict (IMPORTANT: executeAsync for LSTM GraphModel)
+  // predict (ONLY executeAsync for LSTM graph)
   btnPredict.addEventListener("click", async () => {
     try {
-      if (!model) {
-        alert("Спочатку завантаж модель.");
-        return;
-      }
+      if (!model) { alert("Спочатку завантаж модель."); return; }
 
-      const lookback = parseInt(lookbackEl.value, 10);
+      const lookback =
+        lookbackEl ? parseInt(lookbackEl.value, 10)
+                   : (sc.lookback != null ? parseInt(sc.lookback, 10) : 5);
+
       if (!Number.isFinite(lookback) || lookback < 1) {
-        alert("Невірний lookback.");
-        return;
+        throw new Error("Невірний lookback.");
       }
-
       if (values.length < lookback) {
-        alert(`Недостатньо даних: треба ${lookback}, є ${values.length}`);
-        return;
+        throw new Error(`Недостатньо даних: треба ${lookback}, є ${values.length}`);
       }
 
       const windowRaw = values.slice(values.length - lookback);
       const windowScaled = windowRaw.map(v => norm(v, sc));
-
       const x = tf.tensor(windowScaled, [1, lookback, 1], "float32");
 
-      // ✅ executeAsync is required because model contains dynamic ops (while/Exit)
       const out = await model.executeAsync(x);
       const yTensor = firstTensor(out);
       if (!yTensor) throw new Error("Модель не повернула Tensor.");
@@ -114,18 +121,17 @@ async function main() {
       predValEl.textContent = forecast.toFixed(4);
       diffValEl.textContent = (diff >= 0 ? "+" : "") + diff.toFixed(4);
 
-      // Cleanup
       tf.dispose(x);
       if (Array.isArray(out)) out.forEach(t => t.dispose && t.dispose());
-      else if (out && out.dispose) out.dispose();
+      else if (out?.dispose) out.dispose();
     } catch (e) {
       console.error(e);
-      alert("Помилка прогнозу: " + e.message);
+      alert("Помилка: " + e.message);
     }
   });
 }
 
 main().catch(err => {
   console.error(err);
-  alert("Init error: " + err.message);
+  alert("Помилка: " + err.message);
 });
