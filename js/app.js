@@ -1,7 +1,7 @@
 let model = null;
 
 async function loadJSON(path) {
-  const res = await fetch(path);
+  const res = await fetch(path, { cache: "no-store" });
   if (!res.ok) throw new Error(`Fetch failed: ${path} (${res.status})`);
   return await res.json();
 }
@@ -9,48 +9,35 @@ async function loadJSON(path) {
 function norm(x, sc) { return x * sc.scale + sc.min_; }
 function denorm(x, sc) { return (x - sc.min_) / sc.scale; }
 
-function firstTensor(output) {
-  // executeAsync може повернути Tensor, масив Tensor або об'єкт
-  if (Array.isArray(output)) return output[0];
-  if (output && typeof output === "object" && output.dataSync == null) {
-    const k = Object.keys(output)[0];
-    return output[k];
-  }
-  return output;
-}
-
 async function main() {
   await tf.ready();
 
-  const btnLoad = document.getElementById("load");
-  const btnPred = document.getElementById("pred");
+  const btnLoad = document.getElementById("btnLoad");
+  const btnPred = document.getElementById("btnPredict");
 
-  const lastEl = document.getElementById("last");
-  const predEl = document.getElementById("forecast");
-  const diffEl = document.getElementById("diff");
+  const lastEl = document.getElementById("lastVal");
+  const predEl = document.getElementById("predVal");
+  const diffEl = document.getElementById("diffVal");
+  const lookbackEl = document.getElementById("lookback");
 
-  const demo = await loadJSON("./data/demo.json");
+  const demo = await loadJSON("data/demo.json");
   const values = demo.values;
   const sc = demo.scaler;
-  const lookback = parseInt(sc.lookback, 10);
 
   lastEl.textContent = values[values.length - 1].toFixed(4);
 
   btnLoad.onclick = async () => {
     btnLoad.disabled = true;
     btnLoad.textContent = "Завантаження...";
-    model = await tf.loadGraphModel("./model/model.json");
+    model = await tf.loadGraphModel("model/model.json");
     btnLoad.textContent = "Модель завантажено";
     btnPred.disabled = false;
-
-    // Діагностика (можеш потім прибрати)
-    console.log("Model inputs:", model.inputs?.map(x => x.name));
-    console.log("Model outputs:", model.outputs?.map(x => x.name));
   };
 
   btnPred.onclick = async () => {
     if (!model) return;
 
+    const lookback = parseInt(lookbackEl.value, 10);
     if (values.length < lookback) {
       alert(`Недостатньо даних: треба ${lookback}, є ${values.length}`);
       return;
@@ -61,20 +48,9 @@ async function main() {
 
     const x = tf.tensor(windowScaled, [1, lookback, 1], "float32");
 
-    // Найстабільніший спосіб для GraphModel — executeAsync з іменем входу
-    const inputName = (model.inputs && model.inputs[0] && model.inputs[0].name) ? model.inputs[0].name : null;
-
-    let out;
-    if (inputName) {
-      const feed = {};
-      feed[inputName] = x;
-      out = await model.executeAsync(feed);
-    } else {
-      // fallback
-      out = model.predict(x);
-    }
-
-    const yTensor = firstTensor(out);
+    // ✅ тільки executeAsync для LSTM GraphModel
+    const out = await model.executeAsync(x);
+    const yTensor = Array.isArray(out) ? out[0] : out;
     const yVal = (await yTensor.data())[0];
 
     const forecast = denorm(yVal, sc);
@@ -84,9 +60,9 @@ async function main() {
     predEl.textContent = forecast.toFixed(4);
     diffEl.textContent = (diff >= 0 ? "+" : "") + diff.toFixed(4);
 
-    tf.dispose([x]);
+    tf.dispose(x);
     if (Array.isArray(out)) out.forEach(t => t.dispose());
-    else if (out && out.dispose) out.dispose();
+    else out.dispose();
   };
 }
 
