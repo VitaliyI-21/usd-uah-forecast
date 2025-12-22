@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>USD/UAH Forecast (Demo)</title>
+  <link rel="stylesheet" href="css/style.css"/>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
+</head>
+<body>
+<div class="wrap">
+  <h1>Прогноз курсу валют</h1>
+  <p class="sub">USD/UAH (демо) — LSTM + Attention — TensorFlow.js</p>
+  <div class="card">
+    <div class="row">
+      <button id="load">Завантажити модель</button>
+      <button id="pred" disabled>Прогноз</button>
+    </div>
+    <div class="grid">
+      <div><label>Останній курс</label><div id="last" class="value">—</div></div>
+      <div><label>Прогноз</label><div id="forecast" class="value">—</div></div>
+      <div><label>Різниця</label><div id="diff" class="value">—</div></div>
+    </div>
+  </div>
+</div>
+<script src="js/app.js"></script>
+</body>
+</html>
